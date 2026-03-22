@@ -2,6 +2,13 @@
 
 `cognito` is a Python CLI for encoding and decoding project-specific content so code can be moved between different startup projects with less manual cleanup.
 
+## Homebrew Install
+
+```bash
+brew tap romus/homebrew-cognito
+brew install cognito
+```
+
 The tool can:
 - replace words inside text files using case-insensitive substring matching
 - rename directories and files anywhere inside a project tree
@@ -26,7 +33,7 @@ If you regularly bootstrap new products from previous internal projects, you oft
 
 ## Installation
 
-### Local development install
+### Local Development Install
 
 ```bash
 python3 -m venv .venv
