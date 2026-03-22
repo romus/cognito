@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from cognito.cli import main
+from cognito.config import load_config
+from cognito.engine import Console, run_encode
+
+
+def test_cli_requires_confirmation_for_home(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({}), encoding="utf-8")
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr("builtins.input", lambda _: "n")
+
+    exit_code = main(["encode", "--project", str(tmp_path), "--config", str(config_path)])
+
+    assert exit_code == 1
+
+
+def test_cli_invalid_config_returns_2(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{", encoding="utf-8")
+
+    exit_code = main(["encode", "--project", str(tmp_path), "--config", str(config_path), "--silent"])
+
+    assert exit_code == 2
+
+
+def test_cli_decode_does_not_require_config(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    source_file = project_root / "startup1.txt"
+    source_file.write_text("startup1", encoding="utf-8")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"words": {"startup1": "startup2"}}), encoding="utf-8")
+
+    run_encode(project_root, load_config(str(config_path)), dry_run=False, console=Console())
+
+    exit_code = main(["decode", "--project", str(project_root), "--silent"])
+
+    assert exit_code == 0
+    assert source_file.read_text(encoding="utf-8") == "startup1"
+
+
+def test_cli_init_config_creates_default_file(tmp_path):
+    config_path = tmp_path / "config.json"
+
+    exit_code = main(["init-config", "--config", str(config_path)])
+
+    assert exit_code == 0
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    assert payload["words"] == {"startup1": "startup2"}
+
+
+def test_cli_init_config_requires_force_to_overwrite(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+
+    exit_code = main(["init-config", "--config", str(config_path)])
+
+    assert exit_code == 2
+
+
+def test_cli_version_flag_prints_version(capsys):
+    exit_code = main(["--version"])
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "0.1.0" in captured.out
