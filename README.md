@@ -217,6 +217,7 @@ If omitted, built-in defaults are used, including:
 
 Important implementation details:
 - binary files are skipped
+- `.patch` and `.diff` files are treated as text even with non-UTF-8 bytes, unless they contain `NUL` bytes
 - only successfully applied operations are recorded in the manifest
 - if a write or rename fails, the error is logged and the process continues
 
@@ -352,6 +353,7 @@ docs/
 
 - only JSON config is supported
 - text detection is heuristic-based
+- `.patch` and `.diff` are force-treated as text unless they look binary because of `NUL` bytes
 - replacement matching is case-insensitive but not word-boundary-aware
 - replacement target casing is not auto-adjusted
 - ambiguous reverse mappings cannot be decoded safely
