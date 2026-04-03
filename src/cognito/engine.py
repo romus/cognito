@@ -6,10 +6,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 import uuid
 
-from cognito.constants import STATE_DIR_NAME
-from cognito.fs import ensure_directory, is_text_file, iter_project_dirs, iter_project_files
-from cognito.models import Config, RenameRecord, ReplaceRecord, RunReport
-from cognito.text import replace_case_insensitive, reverse_replacements
+from .constants import STATE_DIR_NAME
+from .fs import ensure_directory, inspect_text_file, iter_project_dirs, iter_project_files
+from .models import Config, RenameRecord, ReplaceRecord, RunReport
+from .text import replace_case_insensitive, reverse_replacements
 
 
 class Console:
@@ -65,27 +65,27 @@ def _apply_text_replacements(
     if not config.words:
         return
     for path in iter_project_files(project_root, config.ignore_dirs):
-        if not is_text_file(path):
+        text_info = inspect_text_file(path)
+        if not text_info.is_text:
             continue
-        try:
-            original = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            _record_error(report, console, f"Failed to read {path}: {exc}")
+        rel_path = str(path.relative_to(project_root))
+        if text_info.used_patch_fallback:
+            message = f"Processing patch-like file with non-UTF-8 bytes via surrogateescape: {rel_path}"
+            report.warnings.append(message)
+            console.warning(message)
+        original = _read_text_candidate(path, rel_path, text_info.used_patch_fallback, report, console)
+        if original is None:
             continue
         updated, operations = replace_case_insensitive(original, config.words)
         if not operations:
             continue
-        rel_path = str(path.relative_to(project_root))
         if dry_run:
             report.file_replacements.append(ReplaceRecord(path=rel_path, replacements=operations))
             console.info(f"Would update file: {rel_path}")
             continue
-        try:
-            path.write_text(updated, encoding="utf-8")
+        if _write_text_candidate(path, rel_path, updated, text_info.used_patch_fallback, report, console):
             report.file_replacements.append(ReplaceRecord(path=rel_path, replacements=operations))
             console.info(f"Updated file: {rel_path}")
-        except OSError as exc:
-            _record_error(report, console, f"Failed to write {path}: {exc}")
 
 
 def _apply_renames(
@@ -232,15 +232,18 @@ def _reverse_text_replacements(
             report.warnings.append(message)
             console.warning(message)
             continue
-        if not is_text_file(path):
+        text_info = inspect_text_file(path)
+        if not text_info.is_text:
             message = f"Skip non-text file during decode: {rel_path}"
             report.warnings.append(message)
             console.warning(message)
             continue
-        try:
-            original = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            _record_error(report, console, f"Failed to read {rel_path}: {exc}")
+        if text_info.used_patch_fallback:
+            message = f"Processing patch-like file with non-UTF-8 bytes via surrogateescape: {rel_path}"
+            report.warnings.append(message)
+            console.warning(message)
+        original = _read_text_candidate(path, rel_path, text_info.used_patch_fallback, report, console)
+        if original is None:
             continue
         try:
             reverse_mapping = reverse_replacements(list(file_record["replacements"]))
@@ -257,12 +260,9 @@ def _reverse_text_replacements(
             report.file_replacements.append(ReplaceRecord(path=rel_path, replacements=operations))
             console.info(f"Would update file: {rel_path}")
             continue
-        try:
-            path.write_text(updated, encoding="utf-8")
+        if _write_text_candidate(path, rel_path, updated, text_info.used_patch_fallback, report, console):
             report.file_replacements.append(ReplaceRecord(path=rel_path, replacements=operations))
             console.info(f"Updated file: {rel_path}")
-        except OSError as exc:
-            _record_error(report, console, f"Failed to write {rel_path}: {exc}")
 
 
 def _write_manifest(project_root: Path, config: Config, report: RunReport) -> None:
@@ -318,6 +318,42 @@ def _load_latest_manifest(project_root: Path) -> tuple[Path | None, dict[str, ob
 def _record_error(report: RunReport, console: Console, message: str) -> None:
     report.errors.append(message)
     console.error(message)
+
+
+def _read_text_candidate(
+    path: Path,
+    rel_path: str,
+    use_surrogateescape: bool,
+    report: RunReport,
+    console: Console,
+) -> str | None:
+    read_kwargs: dict[str, str] = {"encoding": "utf-8"}
+    if use_surrogateescape:
+        read_kwargs["errors"] = "surrogateescape"
+    try:
+        return path.read_text(**read_kwargs)
+    except (OSError, UnicodeDecodeError) as exc:
+        _record_error(report, console, f"Failed to read {rel_path}: {exc}")
+        return None
+
+
+def _write_text_candidate(
+    path: Path,
+    rel_path: str,
+    content: str,
+    use_surrogateescape: bool,
+    report: RunReport,
+    console: Console,
+) -> bool:
+    write_kwargs: dict[str, str] = {"encoding": "utf-8"}
+    if use_surrogateescape:
+        write_kwargs["errors"] = "surrogateescape"
+    try:
+        path.write_text(content, **write_kwargs)
+        return True
+    except (OSError, UnicodeEncodeError) as exc:
+        _record_error(report, console, f"Failed to write {rel_path}: {exc}")
+        return False
 
 
 def _timestamp() -> str:

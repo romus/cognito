@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from cognito.constants import DEFAULT_CONFIG_PATH, DEFAULT_IGNORE_DIRS
-from cognito.models import Config
+from .constants import DEFAULT_CONFIG_PATH, DEFAULT_IGNORE_DIRS
+from .models import Config
 
 DEFAULT_CONFIG_TEMPLATE = {
     "directory": {

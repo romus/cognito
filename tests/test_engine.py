@@ -212,3 +212,68 @@ def test_text_replacements_apply_longest_match_first_and_decode_symmetrically(tm
 
     assert decode_report.exit_code == 0
     assert source_file.read_text(encoding="utf-8") == "package com.system1;\nimport com.system1.Service;\n"
+
+
+def test_patch_file_with_utf8_content_is_processed(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    patch_file = project_root / "some-git-patch.patch"
+    patch_file.write_text("--- a/startup1.txt\n+++ b/startup1.txt\n+startup1\n", encoding="utf-8")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"words": {"startup1": "startup2"}}), encoding="utf-8")
+
+    encode_report = run_encode(project_root, load_config(str(config_path)), dry_run=False, console=Console())
+
+    assert encode_report.exit_code == 0
+    assert patch_file.read_text(encoding="utf-8") == "--- a/startup2.txt\n+++ b/startup2.txt\n+startup2\n"
+
+
+def test_patch_file_with_non_utf8_bytes_is_processed_with_warning_and_decodes(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    patch_file = project_root / "some-git-patch.patch"
+    patch_file.write_bytes(b"--- a/startup1.txt\n+++ b/startup1.txt\n+startup1\x80\n")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"words": {"startup1": "startup2"}}), encoding="utf-8")
+
+    encode_report = run_encode(project_root, load_config(str(config_path)), dry_run=False, console=Console())
+
+    assert encode_report.exit_code == 0
+    assert patch_file.read_bytes() == b"--- a/startup2.txt\n+++ b/startup2.txt\n+startup2\x80\n"
+    assert any("Processing patch-like file with non-UTF-8 bytes" in warning for warning in encode_report.warnings)
+
+    decode_report = run_decode(project_root, dry_run=False, console=Console())
+
+    assert decode_report.exit_code == 0
+    assert patch_file.read_bytes() == b"--- a/startup1.txt\n+++ b/startup1.txt\n+startup1\x80\n"
+    assert any("Processing patch-like file with non-UTF-8 bytes" in warning for warning in decode_report.warnings)
+
+
+def test_patch_file_with_nul_byte_is_skipped_as_binary(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    patch_file = project_root / "some-git-patch.patch"
+    patch_file.write_bytes(b"--- a/startup1.txt\n\x00+++ b/startup1.txt\n+startup1\n")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"words": {"startup1": "startup2"}}), encoding="utf-8")
+
+    encode_report = run_encode(project_root, load_config(str(config_path)), dry_run=False, console=Console())
+
+    assert encode_report.exit_code == 0
+    assert patch_file.read_bytes() == b"--- a/startup1.txt\n\x00+++ b/startup1.txt\n+startup1\n"
+    assert encode_report.file_replacements == []
+
+
+def test_non_patch_file_with_invalid_utf8_after_sample_reports_error(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    source_file = project_root / "startup1.txt"
+    source_file.write_bytes((b"a" * 8192) + b"startup1\x80")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"words": {"startup1": "startup2"}}), encoding="utf-8")
+
+    encode_report = run_encode(project_root, load_config(str(config_path)), dry_run=False, console=Console())
+
+    assert encode_report.exit_code == 1
+    assert source_file.read_bytes() == (b"a" * 8192) + b"startup1\x80"
+    assert any("Failed to read startup1.txt" in error for error in encode_report.errors)
