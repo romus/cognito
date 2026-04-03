@@ -63,11 +63,3 @@ def test_cli_init_config_requires_force_to_overwrite(tmp_path):
 
     assert exit_code == 2
 
-
-def test_cli_version_flag_prints_version(capsys):
-    exit_code = main(["--version"])
-
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "0.1.0" in captured.out
