@@ -14,7 +14,7 @@ def build_parser() -> argparse.ArgumentParser:
     top_level_help = (
         "Commands:\n"
         "  encode       Apply configured text replacements and path renames, then save a manifest.\n"
-        "    --config   Path to the JSON config file with replacement rules. Defaults to ~/.cognito/config.json.\n"
+        "    --config   Path to the JSON config file with replacement rules. Defaults to ~/.config/cognito/config.json.\n"
         "    --project  Path to the project root directory to scan and modify. Defaults to the current working directory.\n"
         "    --silent   Skip the confirmation prompt for dangerous project roots.\n"
         "    --dry-run  Show planned changes without modifying files or writing manifests.\n"
@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
         "    --dry-run  Show planned restore actions without modifying files.\n"
         "\n"
         "  init-config  Create a starter JSON config template.\n"
-        "    --config   Output path for the generated config file. Defaults to ~/.cognito/config.json.\n"
+        "    --config   Output path for the generated config file. Defaults to ~/.config/cognito/config.json.\n"
         "    --force    Overwrite the target config file if it already exists."
     )
     parser = argparse.ArgumentParser(
@@ -58,7 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
                 "Path to the JSON config file used to load replacement rules. "
                 "For encode, the file must exist and contain the configuration. "
                 "For decode, the flag is accepted but not required because restore data is read from the latest "
-                "manifest in .cognito. Defaults to ~/.cognito/config.json when omitted."
+                "manifest in .cognito. Defaults to ~/.config/cognito/config.json when omitted."
             ),
         )
         subparser.add_argument(
@@ -91,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument(
         "--config",
         default=None,
-        help="Output path for the generated JSON config. Defaults to ~/.cognito/config.json.",
+        help="Output path for the generated JSON config. Defaults to ~/.config/cognito/config.json.",
     )
     init_parser.add_argument(
         "--force",
