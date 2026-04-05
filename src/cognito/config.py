@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
-from .constants import DEFAULT_CONFIG_PATH, DEFAULT_IGNORE_DIRS
+from .constants import DEFAULT_CONFIG_PATH, DEFAULT_IGNORE_DIRS, OLD_CONFIG_PATH
 from .models import Config
 
 DEFAULT_CONFIG_TEMPLATE = {
@@ -25,6 +26,15 @@ class ConfigError(ValueError):
 
 
 def resolve_config_path(config_path: str | None) -> Path:
+    if config_path is None:
+        old_path = Path(OLD_CONFIG_PATH).expanduser().resolve()
+        if old_path.exists():
+            print(
+                f"Warning: found config at {old_path} (old location).\n"
+                f"cognito now reads from {Path(DEFAULT_CONFIG_PATH).expanduser().resolve()} by default.\n"
+                "Move your config or pass --config explicitly.",
+                file=sys.stderr,
+            )
     raw_path = config_path or DEFAULT_CONFIG_PATH
     return Path(raw_path).expanduser().resolve()
 

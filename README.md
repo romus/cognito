@@ -82,7 +82,7 @@ cognito init-config [--config PATH] [--force]
 
 `init-config`
 - creates a default JSON config template
-- writes to `~/.cognito/config.json` by default
+- writes to `~/.config/cognito/config.json` by default
 - can write to a custom path with `--config`
 - refuses to overwrite an existing file unless `--force` is passed
 
@@ -107,7 +107,7 @@ Path to the JSON config file.
 
 Default:
 ```bash
-~/.cognito/config.json
+~/.config/cognito/config.json
 ```
 
 Notes:
@@ -283,7 +283,7 @@ The log contains:
 ```bash
 .venv/bin/cognito encode \
   --project /path/to/project \
-  --config ~/.cognito/config.json \
+  --config ~/.config/cognito/config.json \
   --silent
 ```
 
@@ -304,7 +304,7 @@ The log contains:
 ```bash
 .venv/bin/cognito encode \
   --project /path/to/project \
-  --config ~/.cognito/config.json \
+  --config ~/.config/cognito/config.json \
   --silent \
   --dry-run
 ```
