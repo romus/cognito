@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import json
-from dataclasses import asdict
-from datetime import datetime, timezone
 from pathlib import Path
-import uuid
 
-from .constants import STATE_DIR_NAME
 from .fs import ensure_directory, inspect_text_file, iter_project_dirs, iter_project_files
 from .models import Config, RenameRecord, ReplaceRecord, RunReport
-from .text import replace_case_insensitive, reverse_replacements
+from .text import replace_case_insensitive
 
 
 class Console:
@@ -35,24 +30,60 @@ def run_encode(project_root: Path, config: Config, dry_run: bool, console: Conso
     report = RunReport(command="encode", project_root=str(project_root), dry_run=dry_run)
     _apply_text_replacements(project_root, config, dry_run, report, console)
     _apply_renames(project_root, config, dry_run, report, console)
-    if not dry_run:
-        _write_manifest(project_root, config, report)
     return report
 
 
-def run_decode(project_root: Path, dry_run: bool, console: Console) -> RunReport:
+def run_decode(project_root: Path, config: Config, dry_run: bool, console: Console) -> RunReport:
     report = RunReport(command="decode", project_root=str(project_root), dry_run=dry_run)
-    manifest_path, manifest = _load_latest_manifest(project_root)
-    if manifest_path is None or manifest is None:
-        report.errors.append("No encode manifest found.")
-        console.error("No encode manifest found in .cognito.")
+    reverse_config = _reverse_config(config, report, console)
+    if reverse_config is None:
         return report
 
-    _reverse_renames(project_root, manifest.get("renames", []), dry_run, report, console)
-    _reverse_text_replacements(project_root, manifest.get("file_replacements", []), dry_run, report, console)
-    if not dry_run:
-        _write_decode_log(project_root, report, manifest_path.name)
+    _apply_text_replacements(project_root, reverse_config, dry_run, report, console)
+    _apply_renames(project_root, reverse_config, dry_run, report, console)
     return report
+
+
+def _reverse_config(config: Config, report: RunReport, console: Console) -> Config | None:
+    words = _reverse_mapping(config.words, "words", report, console)
+    directory = _reverse_mapping(config.directory, "directory", report, console)
+    if report.errors:
+        return None
+    return Config(words=words, directory=directory, ignore_dirs=config.ignore_dirs)
+
+
+def _reverse_mapping(
+    mapping: dict[str, str],
+    field_name: str,
+    report: RunReport,
+    console: Console,
+) -> dict[str, str]:
+    reverse: dict[str, str] = {}
+    for source, target in mapping.items():
+        if not target:
+            _record_error(
+                report,
+                console,
+                f"Config field '{field_name}' cannot be decoded because '{source}' maps to an empty value.",
+            )
+            continue
+        if field_name == "directory" and not _path_mapping_parts(target):
+            _record_error(
+                report,
+                console,
+                f"Config field '{field_name}' cannot be decoded because '{source}' maps to an empty path.",
+            )
+            continue
+        existing = reverse.get(target)
+        if existing is not None and existing != source:
+            _record_error(
+                report,
+                console,
+                f"Config field '{field_name}' has ambiguous reverse mapping for '{target}': '{existing}' and '{source}'.",
+            )
+            continue
+        reverse[target] = source
+    return reverse
 
 
 def _apply_text_replacements(
@@ -140,12 +171,16 @@ def _plan_file_renames(project_root: Path, config: Config) -> list[tuple[Path, P
 def _transform_parts(parts: tuple[str, ...], mapping: dict[str, str]) -> tuple[str, ...]:
     output = list(parts)
     for source, target in mapping.items():
-        source_parts = tuple(part for part in Path(source).parts if part not in ("/", "\\"))
-        target_parts = tuple(part for part in Path(target).parts if part not in ("/", "\\"))
+        source_parts = _path_mapping_parts(source)
+        target_parts = _path_mapping_parts(target)
         if not source_parts:
             continue
         output = _replace_parts(output, list(source_parts), list(target_parts))
     return tuple(output)
+
+
+def _path_mapping_parts(value: str) -> tuple[str, ...]:
+    return tuple(part for part in Path(value).parts if part not in ("/", "\\"))
 
 
 def _replace_parts(parts: list[str], source_parts: list[str], target_parts: list[str]) -> list[str]:
@@ -187,134 +222,6 @@ def _execute_rename(
         _record_error(report, console, f"Failed to rename {before_rel} -> {after_rel}: {exc}")
 
 
-def _reverse_renames(
-    project_root: Path,
-    manifest_renames: list[dict[str, str]],
-    dry_run: bool,
-    report: RunReport,
-    console: Console,
-) -> None:
-    for rename in reversed(manifest_renames):
-        kind = str(rename["kind"])
-        current = project_root / str(rename["after"])
-        target = project_root / str(rename["before"])
-        current_rel = str(rename["after"])
-        target_rel = str(rename["before"])
-        report.renames.append(RenameRecord(kind=kind, before=current_rel, after=target_rel))
-        if not current.exists():
-            message = f"Skip missing {kind}: {current_rel}"
-            report.warnings.append(message)
-            console.warning(message)
-            continue
-        console.info(f"{'Would rename' if dry_run else 'Renamed'} {kind}: {current_rel} -> {target_rel}")
-        if dry_run:
-            continue
-        try:
-            ensure_directory(target.parent, dry_run=False)
-            current.rename(target)
-            _prune_empty_parents(current.parent, project_root)
-        except OSError as exc:
-            _record_error(report, console, f"Failed to rename {current_rel} -> {target_rel}: {exc}")
-
-
-def _reverse_text_replacements(
-    project_root: Path,
-    manifest_files: list[dict[str, object]],
-    dry_run: bool,
-    report: RunReport,
-    console: Console,
-) -> None:
-    for file_record in manifest_files:
-        path = project_root / str(file_record["path"])
-        rel_path = str(file_record["path"])
-        if not path.exists():
-            message = f"Skip missing file during decode: {rel_path}"
-            report.warnings.append(message)
-            console.warning(message)
-            continue
-        text_info = inspect_text_file(path)
-        if not text_info.is_text:
-            message = f"Skip non-text file during decode: {rel_path}"
-            report.warnings.append(message)
-            console.warning(message)
-            continue
-        if text_info.used_patch_fallback:
-            message = f"Processing patch-like file with non-UTF-8 bytes via surrogateescape: {rel_path}"
-            report.warnings.append(message)
-            console.warning(message)
-        original = _read_text_candidate(path, rel_path, text_info.used_patch_fallback, report, console)
-        if original is None:
-            continue
-        try:
-            reverse_mapping = reverse_replacements(list(file_record["replacements"]))
-        except ValueError as exc:
-            _record_error(report, console, f"Failed to decode {rel_path}: {exc}")
-            continue
-        updated, operations = replace_case_insensitive(original, reverse_mapping)
-        if not operations:
-            message = f"No reverse replacements applied for {rel_path}"
-            report.warnings.append(message)
-            console.warning(message)
-            continue
-        if dry_run:
-            report.file_replacements.append(ReplaceRecord(path=rel_path, replacements=operations))
-            console.info(f"Would update file: {rel_path}")
-            continue
-        if _write_text_candidate(path, rel_path, updated, text_info.used_patch_fallback, report, console):
-            report.file_replacements.append(ReplaceRecord(path=rel_path, replacements=operations))
-            console.info(f"Updated file: {rel_path}")
-
-
-def _write_manifest(project_root: Path, config: Config, report: RunReport) -> None:
-    timestamp = _timestamp()
-    payload = {
-        "id": str(uuid.uuid4()),
-        "timestamp": timestamp,
-        "command": report.command,
-        "project_root": report.project_root,
-        "dry_run": report.dry_run,
-        "config": {
-            "words": config.words,
-            "directory": config.directory,
-            "ignore_dirs": list(config.ignore_dirs),
-        },
-        "file_replacements": [asdict(item) for item in report.file_replacements],
-        "renames": [asdict(item) for item in report.renames],
-        "warnings": report.warnings,
-        "errors": report.errors,
-    }
-    state_dir = project_root / STATE_DIR_NAME
-    ensure_directory(state_dir, dry_run=False)
-    manifest_path = state_dir / f"encode-{timestamp}.json"
-    manifest_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
-
-
-def _write_decode_log(project_root: Path, report: RunReport, manifest_name: str) -> None:
-    timestamp = _timestamp()
-    state_dir = project_root / STATE_DIR_NAME
-    ensure_directory(state_dir, dry_run=False)
-    lines = [
-        f"manifest={manifest_name}",
-        f"timestamp={timestamp}",
-        f"errors={len(report.errors)}",
-        f"warnings={len(report.warnings)}",
-        "",
-        *[f"WARNING {message}" for message in report.warnings],
-        *[f"ERROR {message}" for message in report.errors],
-    ]
-    (state_dir / f"decode-{timestamp}.log").write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def _load_latest_manifest(project_root: Path) -> tuple[Path | None, dict[str, object] | None]:
-    state_dir = project_root / STATE_DIR_NAME
-    manifests = sorted(state_dir.glob("encode-*.json"))
-    if not manifests:
-        return None, None
-    manifest_path = manifests[-1]
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    return manifest_path, data
-
-
 def _record_error(report: RunReport, console: Console, message: str) -> None:
     report.errors.append(message)
     console.error(message)
@@ -354,10 +261,6 @@ def _write_text_candidate(
     except (OSError, UnicodeEncodeError) as exc:
         _record_error(report, console, f"Failed to write {rel_path}: {exc}")
         return False
-
-
-def _timestamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _is_relative_to(path: Path, other: Path) -> bool:

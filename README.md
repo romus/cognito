@@ -12,8 +12,7 @@ brew install cognito
 The tool can:
 - replace words inside text files using case-insensitive substring matching
 - rename directories and files anywhere inside a project tree
-- save an `encode` manifest in `.cognito/` inside the target project
-- restore changes later with `decode`
+- reverse configured replacements later with `decode`
 - run in `dry-run` mode without changing files
 
 ## Why this exists
@@ -21,7 +20,7 @@ The tool can:
 If you regularly bootstrap new products from previous internal projects, you often need to:
 - replace project names in source files
 - rename package paths such as `com/startup1` to `dev/startup2`
-- keep enough metadata to reverse the transformation later
+- reverse the transformation later using the same config
 
 `cognito` is designed for that workflow.
 
@@ -72,13 +71,12 @@ cognito init-config [--config PATH] [--force]
 - scans the project recursively
 - replaces configured words in text files
 - renames matching directories and files
-- writes an `encode-<timestamp>.json` manifest into `.cognito/`
 
 `decode`
-- loads the latest `encode-*.json` manifest from `.cognito/`
-- reverses renames in reverse order
-- reverses text replacements using the saved manifest
-- writes `decode-<timestamp>.log`
+- loads the config
+- validates that configured values can be reversed safely
+- scans the project recursively
+- applies `words` and `directory` mappings in reverse
 
 `init-config`
 - creates a default JSON config template
@@ -112,7 +110,7 @@ Default:
 
 Notes:
 - `encode` requires a valid config
-- `decode` does not require the config file because it restores from the saved manifest
+- `decode` requires a valid config because it applies the configured mappings in reverse
 - `init-config` uses this path as the output target for the generated template
 
 ### `--force`
@@ -134,7 +132,6 @@ Prints what would change without mutating the project.
 In `dry-run` mode:
 - files are not rewritten
 - paths are not renamed
-- manifests and decode logs are not created
 
 ## Config format
 
@@ -213,62 +210,25 @@ If omitted, built-in defaults are used, including:
 3. Detect text files by reading file content.
 4. Apply case-insensitive substring replacements from `words`.
 5. Apply path-based renames from `directory`.
-6. Save the actual successful operations to `.cognito/encode-<timestamp>.json`.
 
 Important implementation details:
 - binary files are skipped
 - `.patch` and `.diff` files are treated as text even with non-UTF-8 bytes, unless they contain `NUL` bytes
-- only successfully applied operations are recorded in the manifest
 - if a write or rename fails, the error is logged and the process continues
 
 ## How decode works
 
-1. Read the latest manifest from `.cognito/`.
-2. Reverse renames in reverse order.
-3. Reverse text replacements from the manifest.
-4. Write `.cognito/decode-<timestamp>.log`.
+1. Load config.
+2. Validate that every reverse source is non-empty and unambiguous.
+3. Walk the project recursively, skipping ignored directories.
+4. Apply reverse case-insensitive substring replacements from `words`.
+5. Apply reverse path-based renames from `directory`.
 
 Important behavior:
-- `decode` trusts the manifest and does not require the original config
-- missing files or paths are logged as warnings
+- `decode` does not read `.cognito` manifests or logs
+- new matching files created after `encode` may also be changed by `decode`
 - filesystem errors are logged as errors
-- conflicting reverse mappings are treated as decode errors
-
-## Manifest and logs
-
-### Manifest
-
-`encode` writes:
-
-```text
-.cognito/encode-YYYYMMDDTHHMMSSZ.json
-```
-
-The manifest stores:
-- operation id
-- timestamp
-- project root
-- config snapshot
-- successful file replacements
-- successful rename operations
-- warnings
-- errors
-
-### Decode log
-
-`decode` writes:
-
-```text
-.cognito/decode-YYYYMMDDTHHMMSSZ.log
-```
-
-The log contains:
-- source manifest name
-- timestamp
-- warning count
-- error count
-- warning lines
-- error lines
+- conflicting reverse mappings are treated as decode errors before any files are changed
 
 ## Exit codes
 
@@ -309,11 +269,12 @@ The log contains:
   --dry-run
 ```
 
-### Decode the latest manifest
+### Decode with reverse config mappings
 
 ```bash
 .venv/bin/cognito decode \
   --project /path/to/project \
+  --config ~/.config/cognito/config.json \
   --silent
 ```
 
@@ -356,7 +317,7 @@ docs/
 - `.patch` and `.diff` are force-treated as text unless they look binary because of `NUL` bytes
 - replacement matching is case-insensitive but not word-boundary-aware
 - replacement target casing is not auto-adjusted
-- ambiguous reverse mappings cannot be decoded safely
+- ambiguous or empty reverse mappings cannot be decoded safely
 
 ## License
 

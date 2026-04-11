@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import pytest
-
-from cognito.text import replace_case_insensitive, reverse_replacements, _sorted_replacements
+from cognito.text import replace_case_insensitive, _sorted_replacements
 
 
 def test_replace_case_insensitive_basic():
@@ -42,35 +40,6 @@ def test_replace_longest_match_first():
 
     assert result == "dev.service is org"
     assert len(ops) == 2
-
-
-def test_reverse_replacements_basic():
-    ops = [{"source": "startup1", "target": "startup2", "count": 1}]
-
-    result = reverse_replacements(ops)
-
-    assert result == [("startup2", "startup1")]
-
-
-def test_reverse_replacements_ambiguous():
-    ops = [
-        {"source": "a", "target": "x", "count": 1},
-        {"source": "b", "target": "x", "count": 1},
-    ]
-
-    with pytest.raises(ValueError, match="Ambiguous"):
-        reverse_replacements(ops)
-
-
-def test_reverse_replacements_deduplicates():
-    ops = [
-        {"source": "a", "target": "x", "count": 2},
-        {"source": "a", "target": "x", "count": 1},
-    ]
-
-    result = reverse_replacements(ops)
-
-    assert result == [("x", "a")]
 
 
 def test_sorted_replacements_longest_first():

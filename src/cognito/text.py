@@ -18,20 +18,6 @@ def replace_case_insensitive(
     return updated, operations
 
 
-def reverse_replacements(operations: list[dict[str, str | int]]) -> list[tuple[str, str]]:
-    reverse: dict[str, str] = {}
-    for operation in operations:
-        source = str(operation["source"])
-        target = str(operation["target"])
-        existing = reverse.get(target)
-        if existing is not None and existing != source:
-            raise ValueError(
-                f"Ambiguous reverse replacement for target '{target}': '{existing}' and '{source}'"
-            )
-        reverse[target] = source
-    return _sorted_replacements(reverse.items())
-
-
 def _sorted_replacements(
     replacements: dict[str, str] | Iterable[tuple[str, str]],
 ) -> list[tuple[str, str]]:
