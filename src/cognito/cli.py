@@ -13,17 +13,17 @@ from . import __version__
 def build_parser() -> argparse.ArgumentParser:
     top_level_help = (
         "Commands:\n"
-        "  encode       Apply configured text replacements and path renames, then save a manifest.\n"
+        "  encode       Apply configured text replacements and path renames.\n"
         "    --config   Path to the JSON config file with replacement rules. Defaults to ~/.config/cognito/config.json.\n"
         "    --project  Path to the project root directory to scan and modify. Defaults to the current working directory.\n"
         "    --silent   Skip the confirmation prompt for dangerous project roots.\n"
-        "    --dry-run  Show planned changes without modifying files or writing manifests.\n"
+        "    --dry-run  Show planned changes without modifying files.\n"
         "\n"
-        "  decode       Restore the latest encoded state from the manifest in .cognito.\n"
-        "    --config   Accepted for compatibility but not required during decode.\n"
-        "    --project  Path to the project root directory to restore. Defaults to the current working directory.\n"
+        "  decode       Apply configured text replacements and path renames in reverse.\n"
+        "    --config   Path to the JSON config file with replacement rules. Defaults to ~/.config/cognito/config.json.\n"
+        "    --project  Path to the project root directory to scan and modify. Defaults to the current working directory.\n"
         "    --silent   Skip the confirmation prompt for dangerous project roots.\n"
-        "    --dry-run  Show planned restore actions without modifying files.\n"
+        "    --dry-run  Show planned reverse changes without modifying files.\n"
         "\n"
         "  init-config  Create a starter JSON config template.\n"
         "    --config   Output path for the generated config file. Defaults to ~/.config/cognito/config.json.\n"
@@ -42,9 +42,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     for command in ("encode", "decode"):
         description = (
-            "Apply configured text and path replacements across a project tree and save a manifest for decode."
+            "Apply configured text and path replacements across a project tree."
             if command == "encode"
-            else "Restore the latest encoded project state using the manifest stored in .cognito."
+            else "Apply configured text and path replacements in reverse across a project tree."
         )
         subparser = subparsers.add_parser(
             command,
@@ -56,9 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
             default=None,
             help=(
                 "Path to the JSON config file used to load replacement rules. "
-                "For encode, the file must exist and contain the configuration. "
-                "For decode, the flag is accepted but not required because restore data is read from the latest "
-                "manifest in .cognito. Defaults to ~/.config/cognito/config.json when omitted."
+                "For both encode and decode, the file must exist and contain the configuration. "
+                "Defaults to ~/.config/cognito/config.json when omitted."
             ),
         )
         subparser.add_argument(
@@ -80,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--dry-run",
             action="store_true",
             help=(
-                "Show which files and paths would change without modifying files, renaming paths, or writing manifests."
+                "Show which files and paths would change without modifying files or renaming paths."
             ),
         )
     init_parser = subparsers.add_parser(
@@ -129,13 +128,14 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     console = Console()
+    try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
     if args.command == "encode":
-        try:
-            config = load_config(args.config)
-        except ConfigError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-            return 2
         report = run_encode(project_root=project_root, config=config, dry_run=args.dry_run, console=console)
     else:
-        report = run_decode(project_root=project_root, dry_run=args.dry_run, console=console)
+        report = run_decode(project_root=project_root, config=config, dry_run=args.dry_run, console=console)
     return report.exit_code

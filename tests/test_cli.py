@@ -29,7 +29,17 @@ def test_cli_invalid_config_returns_2(tmp_path):
     assert exit_code == 2
 
 
-def test_cli_decode_does_not_require_config(tmp_path):
+def test_cli_decode_requires_config(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    missing_config = tmp_path / "missing.json"
+
+    exit_code = main(["decode", "--project", str(project_root), "--config", str(missing_config), "--silent"])
+
+    assert exit_code == 2
+
+
+def test_cli_decode_uses_config_reverse_mapping(tmp_path):
     project_root = tmp_path / "project"
     project_root.mkdir()
     source_file = project_root / "startup1.txt"
@@ -39,7 +49,7 @@ def test_cli_decode_does_not_require_config(tmp_path):
 
     run_encode(project_root, load_config(str(config_path)), dry_run=False, console=Console())
 
-    exit_code = main(["decode", "--project", str(project_root), "--silent"])
+    exit_code = main(["decode", "--project", str(project_root), "--config", str(config_path), "--silent"])
 
     assert exit_code == 0
     assert source_file.read_text(encoding="utf-8") == "startup1"
@@ -62,4 +72,3 @@ def test_cli_init_config_requires_force_to_overwrite(tmp_path):
     exit_code = main(["init-config", "--config", str(config_path)])
 
     assert exit_code == 2
-
